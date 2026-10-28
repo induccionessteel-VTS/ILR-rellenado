@@ -1,6 +1,7 @@
 /**
  * Código fuente completo y no resumido para el proyecto Next.js + Supabase + pdf-lib
- * Listo para ser copiado directamente a GitHub y desplegado en Vercel.
+ * Actualizado para el documento legal real (VELTS-D-ACN212-HS-0012)
+ * Incluye protección de Auditoría para Administrador (RBAC/RLS) y opción de subir foto de firma.
  */
 
 export const TERMINAL_COMMANDS = `# 1. Crear el proyecto Next.js con TypeScript, Tailwind CSS y App Router
@@ -16,37 +17,43 @@ npx create-next-app@latest legal-doc-signer \\
 # 2. Entrar al directorio
 cd legal-doc-signer
 
-# 3. Instalar librerías de manipulación de PDF, Supabase y captura de firma
-npm install pdf-lib @supabase/supabase-js react-signature-canvas
+# 3. Instalar dependencias esenciales de PDF, Supabase y Firma
+npm install pdf-lib @supabase/supabase-js react-signature-canvas lucide-react
 npm install -D @types/react-signature-canvas
 
-# 4. Crear carpetas necesarias
+# 4. Crear carpetas requeridas
 mkdir -p public/templates
 mkdir -p src/lib
 mkdir -p src/components
 mkdir -p src/app/api/generate
+mkdir -p src/app/admin
 
-# 5. Colocar tus PDFs originales en /public/templates/
-# - public/templates/acta_ds44_template.pdf (22 páginas)
-# - public/templates/consentimiento_alcohol_drogas.pdf (1 página)
+# 5. Colocar tus PDFs originales en public/templates/
+# - public/templates/acta_ds44_template.pdf (El documento oficial VELTS-D-ACN212-HS-0012)
+# - public/templates/consentimiento_alcohol_drogas.pdf
 
-# 6. Variables de entorno (.env.local)
+# 6. Configurar variables de entorno en .env.local
 cat << 'EOF' > .env.local
+# Variables públicas
 NEXT_PUBLIC_SUPABASE_URL=https://tu-proyecto.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=tu-anon-key-de-supabase
+NEXT_PUBLIC_ADMIN_PIN=admin2026
+
+# Variable PRIVADA del servidor (NUNCA exponer en el cliente)
 SUPABASE_SERVICE_ROLE_KEY=tu-service-role-key-de-supabase
+ADMIN_SECRET_KEY=clave_secreta_para_sesion_admin
 EOF
 
-# 7. Iniciar entorno de desarrollo
+# 7. Iniciar el servidor de desarrollo
 npm run dev
 `;
 
 export const SUPABASE_SQL_SCRIPT = `-- ==============================================================================
--- TABLA DE AUDITORÍA MASIVA: auditoria_documentos
--- Registra cada firma y generación de documentos para cumplimiento legal chileno
+-- TABLA DE AUDITORÍA MASIVA: public.auditoria_documentos
+-- Con Seguridad a Nivel de Fila (RLS) Restringida Exclusivamente a Administradores
 -- ==============================================================================
 
--- 1. Crear extensión UUID si no existe
+-- 1. Habilitar extensión UUID
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- 2. Crear tabla principal de auditoría
@@ -57,50 +64,49 @@ CREATE TABLE IF NOT EXISTS public.auditoria_documentos (
     rut TEXT NOT NULL,
     cargo TEXT NOT NULL DEFAULT 'OPERARIO(A) DE ASEO',
     area TEXT NOT NULL DEFAULT 'CONCENTRADUCTO',
+    documento_codigo TEXT NOT NULL DEFAULT 'VELTS-D-ACN212-HS-0012',
     documentos_generados TEXT[] NOT NULL,
+    tipo_firma TEXT NOT NULL DEFAULT 'digital_manuscrita', -- 'digital_manuscrita' o 'foto_subida'
     ip_address TEXT NOT NULL,
     user_agent TEXT,
     archivo_peso_bytes INTEGER,
-    hash_sha256 TEXT,
     metadata JSONB DEFAULT '{}'::jsonb
 );
 
--- 3. Índices para búsqueda de alta velocidad en auditorías
+-- 3. Índices optimizados para auditorías de faena
 CREATE INDEX IF NOT EXISTS idx_auditoria_rut ON public.auditoria_documentos(rut);
 CREATE INDEX IF NOT EXISTS idx_auditoria_fecha ON public.auditoria_documentos(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_auditoria_ip ON public.auditoria_documentos(ip_address);
 
--- 4. Habilitar Row Level Security (RLS)
+-- 4. Habilitar Row Level Security (RLS) - OBLIGATORIO PARA CUMPLIMIENTO LEGAL
 ALTER TABLE public.auditoria_documentos ENABLE ROW LEVEL SECURITY;
 
--- 5. Políticas de Acceso Seguro:
--- Permitir inserción desde la API de Next.js (Service Role o Anon autorizado)
-CREATE POLICY "Permitir insercion autenticada o servicio"
+-- 5. POLÍTICA DE INSERCIÓN (Cualquier trabajador o API puede registrar su documento):
+CREATE POLICY "Permitir insercion de auditoria desde API o anon"
     ON public.auditoria_documentos
     FOR INSERT
     TO anon, authenticated, service_role
     WITH CHECK (true);
 
--- Permitir solo a administradores o personal autorizado consultar los registros
-CREATE POLICY "Lectura restringida a personal autorizado"
+-- 6. POLÍTICA DE CONSULTA (RESTRINGIDA SOLO A ADMINISTRADORES):
+-- Los trabajadores regulares NO tienen permiso para consultar la tabla ni ver otros RUTs.
+-- Solo el service_role (backend protegido) o usuarios con rol de administrador pueden hacer SELECT.
+CREATE POLICY "Lectura exclusiva para administradores y service_role"
     ON public.auditoria_documentos
     FOR SELECT
-    TO authenticated, service_role
+    TO service_role
     USING (true);
 
--- Comentario explicativo en la tabla
-COMMENT ON TABLE public.auditoria_documentos IS 'Registro inmutable de auditoría para firmas de Acta DS 44 y Consentimiento de Drogas';
+-- Comentario legal
+COMMENT ON TABLE public.auditoria_documentos IS 'Registro inmutable confidencial de firmas legales DS 44 para faena minera';
 `;
 
 export const NEXT_SUPABASE_CLIENT = `// src/lib/supabase.ts
 import { createClient } from '@supabase/supabase-js';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+// En el backend (route handler), se usa el Service Role Key para poder insertar de forma segura
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-
-if (!supabaseUrl || !supabaseKey) {
-  console.warn('[Supabase] Advertencia: Variables de entorno NEXT_PUBLIC_SUPABASE_URL o KEY no definidas.');
-}
 
 export const supabase = createClient(supabaseUrl, supabaseKey);
 
@@ -109,7 +115,9 @@ export interface AuditoriaPayload {
   rut: string;
   cargo?: string;
   area?: string;
+  documento_codigo?: string;
   documentos_generados: string[];
+  tipo_firma?: 'digital_manuscrita' | 'foto_subida';
   ip_address: string;
   user_agent?: string;
   archivo_peso_bytes?: number;
@@ -117,7 +125,7 @@ export interface AuditoriaPayload {
 }
 
 /**
- * Función que inserta el registro de auditoría en Supabase antes de devolver el PDF
+ * Inserta el registro de auditoría en Supabase antes de entregar el PDF al trabajador
  */
 export async function registrarAuditoria(payload: AuditoriaPayload) {
   try {
@@ -129,7 +137,9 @@ export async function registrarAuditoria(payload: AuditoriaPayload) {
           rut: payload.rut,
           cargo: payload.cargo || 'OPERARIO(A) DE ASEO',
           area: payload.area || 'CONCENTRADUCTO',
+          documento_codigo: payload.documento_codigo || 'VELTS-D-ACN212-HS-0012',
           documentos_generados: payload.documentos_generados,
+          tipo_firma: payload.tipo_firma || 'digital_manuscrita',
           ip_address: payload.ip_address,
           user_agent: payload.user_agent || 'Unknown',
           archivo_peso_bytes: payload.archivo_peso_bytes || 0,
@@ -149,6 +159,24 @@ export async function registrarAuditoria(payload: AuditoriaPayload) {
     return { success: false, error: err.message };
   }
 }
+
+/**
+ * Consulta de registros de auditoría (Exclusivo para Administradores con Service Role Key)
+ */
+export async function obtenerRegistrosAuditoria(adminSecret: string) {
+  if (adminSecret !== process.env.ADMIN_SECRET_KEY && adminSecret !== process.env.NEXT_PUBLIC_ADMIN_PIN) {
+    throw new Error('No autorizado. Acceso exclusivo para administradores.');
+  }
+
+  const { data, error } = await supabase
+    .from('auditoria_documentos')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(100);
+
+  if (error) throw error;
+  return data;
+}
 `;
 
 export const NEXT_ROUTE_HANDLER = `// src/app/api/generate/route.ts
@@ -158,81 +186,66 @@ import fs from 'fs/promises';
 import path from 'path';
 import { registrarAuditoria } from '@/lib/supabase';
 
-// Coordenadas calibradas por defecto (puntos tipográficos 72 DPI, A4: 595.28 x 841.89 pt)
+// Coordenadas exactamente calibradas para el documento real:
+// VELTS-D-ACN212-HS-0012 (612 x 792 pt, US Letter)
 const COORDENADAS = {
   actaDs44: {
     page1: {
-      cargo: { x: 130, y: 672 },
-      fecha: { x: 460, y: 672 },
-      area: { x: 130, y: 642 },
-      horaInicio: { x: 380, y: 642 },
-      horaTermino: { x: 485, y: 642 },
-      personaNuevaX: { x: 508, y: 618, size: 24 }, // "X" gigante
-      nombre: { x: 130, y: 588 },
-      rut: { x: 420, y: 588 },
-      contactoEmergencia: { x: 195, y: 558 },
-      telefonoEmergencia: { x: 420, y: 558 },
+      nombre: { x: 155, y: 578 },
+      rut: { x: 450, y: 578 },
+      cargo: { x: 52, y: 564 }, // Preimpreso en el PDF original
+      fecha: { x: 435, y: 564 },
+      area: { x: 80, y: 550 },
+      horaInicio: { x: 460, y: 550 },
+      horaTermino: { x: 535, y: 550 },
+      contactoEmergencia: { x: 185, y: 536 },
+      telefonoEmergencia: { x: 185, y: 522 },
+      personaNuevaX: { x: 105, y: 486, size: 20 }, // "X" gigante roja en casilla 'Persona Nueva'
     },
     page22: {
-      nombre: { x: 80, y: 195 },
-      rut: { x: 80, y: 165 },
-      cargo: { x: 80, y: 135 },
-      firma: { x: 360, y: 130, width: 170, height: 75 }, // Lado derecho (firma trabajador)
+      nombre: { x: 125, y: 541 },
+      rut: { x: 80, y: 527 },
+      cargo: { x: 55, y: 512 },
+      firma: { x: 295, y: 130, width: 175, height: 75 }, // Lado derecho, respetando la casilla Huella
     },
   },
   consentimiento: {
-    nombre: { x: 140, y: 620 },
-    rut: { x: 140, y: 585 },
-    fecha: { x: 380, y: 585 },
+    nombre: { x: 140, y: 605 },
+    rut: { x: 140, y: 575 },
+    fecha: { x: 380, y: 575 },
     firma: { x: 210, y: 240, width: 180, height: 80 },
   },
 };
 
-// Mapeo explícito de casillas de preguntas médicas (Páginas 8 a 12 / Índices 7 a 11)
-const MAPEO_PREGUNTAS_MEDICAS: Record<string, { pageIndex: number; yes: { x: number; y: number }; no: { x: number; y: number } }> = {
-  // Pág 8 (Índice 7)
-  ant_cirugias: { pageIndex: 7, yes: { x: 440, y: 640 }, no: { x: 490, y: 640 } },
-  ant_licencias: { pageIndex: 7, yes: { x: 440, y: 590 }, no: { x: 490, y: 590 } },
-  ant_hospitalizacion: { pageIndex: 7, yes: { x: 440, y: 540 }, no: { x: 490, y: 540 } },
+// Mapeo exacto de casillas de la Ficha Médica en el documento real:
+// - Pág. 8 (Índice 7): Enfermedades 01 a 04
+// - Pág. 9 (Índice 8): Enfermedades 05 a 08, Antecedentes y Otras Consideraciones
+const MAPEO_PREGUNTAS_MEDICAS: Record<
+  string,
+  { pageIndex: number; yes: { x: number; y: number }; no: { x: number; y: number } }
+> = {
+  // Pág. 8 (Índice 7) - ENFERMEDADES
+  enf_epilepsia: { pageIndex: 7, yes: { x: 378, y: 191 }, no: { x: 412, y: 191 } },
+  enf_lumbago: { pageIndex: 7, yes: { x: 378, y: 167 }, no: { x: 412, y: 167 } },
+  enf_hipertension: { pageIndex: 7, yes: { x: 378, y: 142 }, no: { x: 412, y: 142 } },
+  enf_diabetes: { pageIndex: 7, yes: { x: 378, y: 118 }, no: { x: 412, y: 118 } },
 
-  // Pág 9 (Índice 8)
-  enf_hipertension: { pageIndex: 8, yes: { x: 440, y: 640 }, no: { x: 490, y: 640 } },
-  enf_asma: { pageIndex: 8, yes: { x: 440, y: 590 }, no: { x: 490, y: 590 } },
-  enf_pecho: { pageIndex: 8, yes: { x: 440, y: 540 }, no: { x: 490, y: 540 } },
+  // Pág. 9 (Índice 8) - ENFERMEDADES (Continuación)
+  enf_asma: { pageIndex: 8, yes: { x: 378, y: 746 }, no: { x: 412, y: 746 } },
+  enf_claustrofobia: { pageIndex: 8, yes: { x: 378, y: 724 }, no: { x: 412, y: 724 } },
+  enf_inmuno: { pageIndex: 8, yes: { x: 378, y: 701 }, no: { x: 412, y: 701 } },
+  enf_otras: { pageIndex: 8, yes: { x: 378, y: 678 }, no: { x: 412, y: 678 } },
 
-  // Pág 10 (Índice 9)
-  enf_diabetes: { pageIndex: 9, yes: { x: 440, y: 640 }, no: { x: 490, y: 640 } },
-  enf_columna: { pageIndex: 9, yes: { x: 440, y: 590 }, no: { x: 490, y: 590 } },
-  enf_articular: { pageIndex: 9, yes: { x: 440, y: 540 }, no: { x: 490, y: 540 } },
+  // Pág. 9 (Índice 8) - ANTECEDENTES GENERALES
+  ant_fractura: { pageIndex: 8, yes: { x: 378, y: 616 }, no: { x: 412, y: 616 } },
+  ant_tratamientos: { pageIndex: 8, yes: { x: 378, y: 591 }, no: { x: 412, y: 591 } },
 
-  // Pág 11 (Índice 10)
-  enf_epilepsia: { pageIndex: 10, yes: { x: 440, y: 640 }, no: { x: 490, y: 640 } },
-  enf_vertigo: { pageIndex: 10, yes: { x: 440, y: 590 }, no: { x: 490, y: 590 } },
-  enf_vision: { pageIndex: 10, yes: { x: 440, y: 540 }, no: { x: 490, y: 540 } },
-
-  // Pág 12 (Índice 11)
-  cons_alergia: { pageIndex: 11, yes: { x: 440, y: 640 }, no: { x: 490, y: 640 } },
-  cons_somnolencia: { pageIndex: 11, yes: { x: 440, y: 590 }, no: { x: 490, y: 590 } },
-  cons_embarazo: { pageIndex: 11, yes: { x: 440, y: 540 }, no: { x: 490, y: 540 } },
+  // Pág. 9 (Índice 8) - OTRAS CONSIDERACIONES
+  cons_alergia: { pageIndex: 8, yes: { x: 378, y: 516 }, no: { x: 412, y: 516 } },
+  cons_protesis: { pageIndex: 8, yes: { x: 378, y: 491 }, no: { x: 412, y: 491 } },
+  cons_ortesis: { pageIndex: 8, yes: { x: 378, y: 466 }, no: { x: 412, y: 466 } },
+  cons_discapacidad: { pageIndex: 8, yes: { x: 378, y: 441 }, no: { x: 412, y: 441 } },
 };
-
-/**
- * Carga un archivo PDF desde /public/templates o crea un documento en blanco con N páginas si no existe
- */
-async function cargarOcrearTemplate(nombreArchivo: string, cantidadPaginasMinimas: number): Promise<PDFDocument> {
-  const rutaCompleta = path.join(process.cwd(), 'public', 'templates', nombreArchivo);
-  try {
-    const buffer = await fs.readFile(rutaCompleta);
-    return await PDFDocument.load(buffer);
-  } catch {
-    console.warn(\`[pdf-lib] Plantilla \${nombreArchivo} no encontrada en \${rutaCompleta}. Generando documento sintético.\`);
-    const doc = await PDFDocument.create();
-    for (let i = 0; i < cantidadPaginasMinimas; i++) {
-      doc.addPage([595.28, 841.89]);
-    }
-    return doc;
-  }
-}
 
 export async function POST(req: NextRequest) {
   try {
@@ -244,130 +257,156 @@ export async function POST(req: NextRequest) {
       telefonoEmergencia,
       respuestasMedicas = {},
       firmaPngBase64,
+      tipoFirma = 'digital_manuscrita',
     } = body;
 
     if (!nombre || !rut || !firmaPngBase64) {
       return NextResponse.json(
-        { error: 'Faltan campos obligatorios: nombre, rut o firma' },
+        { error: 'Faltan parámetros requeridos: nombre, rut o firma' },
         { status: 400 }
       );
     }
 
-    // 1. Obtener IP y datos de auditoría
-    const ip = req.headers.get('x-forwarded-for')?.split(',')[0].trim() ||
+    // 1. Obtener IP y metadatos de auditoría
+    const ip =
+      req.headers.get('x-forwarded-for')?.split(',')[0].trim() ||
       req.headers.get('x-real-ip') ||
       '127.0.0.1';
     const userAgent = req.headers.get('user-agent') || 'Unknown';
 
-    // 2. Cargar las dos plantillas PDF
-    const actaPdfDoc = await cargarOcrearTemplate('acta_ds44_template.pdf', 22);
-    const consentimientoPdfDoc = await cargarOcrearTemplate('consentimiento_alcohol_drogas.pdf', 1);
+    // 2. Cargar el PDF real oficial Acta DS 44 (VELTS-D-ACN212-HS-0012)
+    const templatePath = path.join(process.cwd(), 'public', 'templates', 'acta_ds44_template.pdf');
+    const templateBytes = await fs.readFile(templatePath);
+    const actaPdfDoc = await PDFDocument.load(templateBytes);
 
-    // Fuentes estándar
+    // Cargar o crear Consentimiento de Drogas
+    let consentPdfDoc: PDFDocument;
+    const consentPath = path.join(process.cwd(), 'public', 'templates', 'consentimiento_alcohol_drogas.pdf');
+    try {
+      const consentBytes = await fs.readFile(consentPath);
+      consentPdfDoc = await PDFDocument.load(consentBytes);
+    } catch {
+      consentPdfDoc = await PDFDocument.create();
+      consentPdfDoc.addPage([612, 792]);
+    }
+
+    // Fuentes
     const font = await actaPdfDoc.embedFont(StandardFonts.Helvetica);
     const boldFont = await actaPdfDoc.embedFont(StandardFonts.HelveticaBold);
-    const fontConsent = await consentimientoPdfDoc.embedFont(StandardFonts.Helvetica);
-    const boldFontConsent = await consentimientoPdfDoc.embedFont(StandardFonts.HelveticaBold);
+    const fontConsent = await consentPdfDoc.embedFont(StandardFonts.Helvetica);
+    const boldFontConsent = await consentPdfDoc.embedFont(StandardFonts.HelveticaBold);
 
-    // 3. Decodificar la firma PNG de forma segura
-    const cleanBase64 = firmaPngBase64.replace(/^data:image\/(png|jpeg|jpg);base64,/, '');
+    // 3. Decodificar la firma (sea dibujada en canvas o foto subida con transparencia)
+    const cleanBase64 = firmaPngBase64.replace(/^data:image\/(png|jpeg|jpg|webp);base64,/, '').trim();
     const signatureBuffer = Buffer.from(cleanBase64, 'base64');
-    const signatureImageActa = await actaPdfDoc.embedPng(signatureBuffer);
-    const signatureImageConsent = await consentimientoPdfDoc.embedPng(signatureBuffer);
+
+    let sigImageActa;
+    let sigImageConsent;
+    if (firmaPngBase64.includes('image/jpeg') || firmaPngBase64.includes('image/jpg')) {
+      sigImageActa = await actaPdfDoc.embedJpg(signatureBuffer);
+      sigImageConsent = await consentPdfDoc.embedJpg(signatureBuffer);
+    } else {
+      sigImageActa = await actaPdfDoc.embedPng(signatureBuffer);
+      sigImageConsent = await consentPdfDoc.embedPng(signatureBuffer);
+    }
 
     // =========================================================================
-    // DOCUMENTO 1: ACTA IRL DS 44 (22 páginas)
+    // DOCUMENTO 1: ACTA IRL DS 44 - VELTS-D-ACN212-HS-0012 (22 Páginas)
     // =========================================================================
-    const actaPages = actaPdfDoc.getPages();
+    const pages = actaPdfDoc.getPages();
 
-    // PÁGINA 1 (Índice 0)
-    const p1 = actaPages[0];
-    const p1Coords = COORDENADAS.actaDs44.page1;
+    // --- PÁGINA 1 (Índice 0) ---
+    const p1 = pages[0];
+    const p1Cfg = COORDENADAS.actaDs44.page1;
 
-    // Autocompletado estático
-    p1.drawText('OPERARIO(A) DE ASEO', { x: p1Coords.cargo.x, y: p1Coords.cargo.y, size: 9, font: boldFont });
-    p1.drawText('27-10-2026', { x: p1Coords.fecha.x, y: p1Coords.fecha.y, size: 9, font });
-    p1.drawText('CONCENTRADUCTO', { x: p1Coords.area.x, y: p1Coords.area.y, size: 9, font });
-    p1.drawText('10:00', { x: p1Coords.horaInicio.x, y: p1Coords.horaInicio.y, size: 9, font });
-    p1.drawText('12:00', { x: p1Coords.horaTermino.x, y: p1Coords.horaTermino.y, size: 9, font });
+    // Datos dinámicos
+    p1.drawText(nombre.toUpperCase(), { x: p1Cfg.nombre.x, y: p1Cfg.nombre.y, size: 8, font: boldFont });
+    p1.drawText(rut, { x: p1Cfg.rut.x, y: p1Cfg.rut.y, size: 8, font: boldFont });
+    p1.drawText(contactoEmergencia || 'NO REGISTRA', { x: p1Cfg.contactoEmergencia.x, y: p1Cfg.contactoEmergencia.y, size: 8, font });
+    p1.drawText(telefonoEmergencia || 'NO REGISTRA', { x: p1Cfg.telefonoEmergencia.x, y: p1Cfg.telefonoEmergencia.y, size: 8, font });
 
-    // 'X' GIGANTE en la casilla "Persona Nueva"
+    // Autocompletado estático requerido
+    p1.drawText('27-10-2026', { x: p1Cfg.fecha.x, y: p1Cfg.fecha.y, size: 8, font });
+    p1.drawText('CONCENTRADUCTO', { x: p1Cfg.area.x, y: p1Cfg.area.y, size: 8, font });
+    p1.drawText('10:00', { x: p1Cfg.horaInicio.x, y: p1Cfg.horaInicio.y, size: 8, font });
+    p1.drawText('12:00', { x: p1Cfg.horaTermino.x, y: p1Cfg.horaTermino.y, size: 8, font });
+
+    // "X" GIGANTE en la casilla de "Persona Nueva"
     p1.drawText('X', {
-      x: p1Coords.personaNuevaX.x,
-      y: p1Coords.personaNuevaX.y,
-      size: p1Coords.personaNuevaX.size,
+      x: p1Cfg.personaNuevaX.x,
+      y: p1Cfg.personaNuevaX.y,
+      size: p1Cfg.personaNuevaX.size,
       font: boldFont,
-      color: rgb(0.8, 0, 0),
+      color: rgb(0.85, 0, 0),
     });
 
-    // Datos dinámicos del trabajador
-    p1.drawText(nombre.toUpperCase(), { x: p1Coords.nombre.x, y: p1Coords.nombre.y, size: 9, font: boldFont });
-    p1.drawText(rut, { x: p1Coords.rut.x, y: p1Coords.rut.y, size: 9, font: boldFont });
-    p1.drawText(contactoEmergencia || 'NO REGISTRA', { x: p1Coords.contactoEmergencia.x, y: p1Coords.contactoEmergencia.y, size: 8.5, font });
-    p1.drawText(telefonoEmergencia || 'NO REGISTRA', { x: p1Coords.telefonoEmergencia.x, y: p1Coords.telefonoEmergencia.y, size: 8.5, font });
-
-    // PÁGINAS 8 AL 12 (Índices 7 al 11 - Cuestionario Médico)
-    for (const [key, config] of Object.entries(MAPEO_PREGUNTAS_MEDICAS)) {
-      if (config.pageIndex < actaPages.length) {
-        const medicalPage = actaPages[config.pageIndex];
+    // --- PÁGINAS 8 Y 9 (Índices 7 y 8) - FICHA MÉDICA DEL TRABAJADOR ---
+    for (const [key, mapping] of Object.entries(MAPEO_PREGUNTAS_MEDICAS)) {
+      if (mapping.pageIndex < pages.length) {
+        const medPage = pages[mapping.pageIndex];
         const isYes = respuestasMedicas[key] === true;
-        const targetCoord = isYes ? config.yes : config.no;
+        const coords = isYes ? mapping.yes : mapping.no;
 
-        // Dibuja una 'X' en la casilla correspondiente
-        medicalPage.drawText('X', {
-          x: targetCoord.x,
-          y: targetCoord.y,
-          size: 13,
+        medPage.drawText('X', {
+          x: coords.x,
+          y: coords.y,
+          size: 11,
           font: boldFont,
-          color: isYes ? rgb(0.85, 0.1, 0.1) : rgb(0.05, 0.45, 0.15),
+          color: isYes ? rgb(0.85, 0.1, 0.1) : rgb(0.1, 0.1, 0.1),
         });
       }
     }
 
-    // PÁGINA 22 (Índice 21 - Cierre y Firma)
-    const p22 = actaPages[21];
-    const p22Coords = COORDENADAS.actaDs44.page22;
+    // --- PÁGINA 22 (Índice 21) - CIERRE Y FIRMA DEL TRABAJADOR ---
+    const p22 = pages[21];
+    const p22Cfg = COORDENADAS.actaDs44.page22;
 
-    p22.drawText(nombre.toUpperCase(), { x: p22Coords.nombre.x, y: p22Coords.nombre.y, size: 9, font: boldFont });
-    p22.drawText(rut, { x: p22Coords.rut.x, y: p22Coords.rut.y, size: 9, font: boldFont });
-    p22.drawText('Operario de Aseo', { x: p22Coords.cargo.x, y: p22Coords.cargo.y, size: 9, font });
+    p22.drawText(nombre.toUpperCase(), { x: p22Cfg.nombre.x, y: p22Cfg.nombre.y, size: 8.5, font: boldFont });
+    p22.drawText(rut, { x: p22Cfg.rut.x, y: p22Cfg.rut.y, size: 8.5, font: boldFont });
+    p22.drawText('Operario de Aseo', { x: p22Cfg.cargo.x, y: p22Cfg.cargo.y, size: 8.5, font });
 
-    // Insertar firma en el lado derecho de la página
-    p22.drawImage(signatureImageActa, {
-      x: p22Coords.firma.x,
-      y: p22Coords.firma.y,
-      width: p22Coords.firma.width,
-      height: p22Coords.firma.height,
+    // Incrustar firma en el lado derecho (respetando la casilla HUELLA)
+    p22.drawImage(sigImageActa, {
+      x: p22Cfg.firma.x,
+      y: p22Cfg.firma.y,
+      width: p22Cfg.firma.width,
+      height: p22Cfg.firma.height,
+    });
+
+    p22.drawText(\`\${nombre.toUpperCase()} - RUT: \${rut}\`, {
+      x: p22Cfg.firma.x,
+      y: p22Cfg.firma.y - 12,
+      size: 7,
+      font: boldFont,
+      color: rgb(0.2, 0.2, 0.2),
     });
 
     // =========================================================================
     // DOCUMENTO 2: CONSENTIMIENTO ALCOHOL Y DROGAS
     // =========================================================================
-    const consentPages = consentimientoPdfDoc.getPages();
-    const consentP1 = consentPages[0];
-    const cCoords = COORDENADAS.consentimiento;
+    const consentPage = consentPdfDoc.getPages()[0];
+    const cCfg = COORDENADAS.consentimiento;
 
-    consentP1.drawText(nombre.toUpperCase(), { x: cCoords.nombre.x, y: cCoords.nombre.y, size: 9.5, font: boldFontConsent });
-    consentP1.drawText(rut, { x: cCoords.rut.x, y: cCoords.rut.y, size: 9.5, font: boldFontConsent });
-    consentP1.drawText('27-10-2026', { x: cCoords.fecha.x, y: cCoords.fecha.y, size: 9.5, font: fontConsent });
+    consentPage.drawText(nombre.toUpperCase(), { x: cCfg.nombre.x, y: cCfg.nombre.y, size: 9.5, font: boldFontConsent });
+    consentPage.drawText(rut, { x: cCfg.rut.x, y: cCfg.rut.y, size: 9.5, font: boldFontConsent });
+    consentPage.drawText('27-10-2026', { x: cCfg.fecha.x, y: cCfg.fecha.y, size: 9.5, font: fontConsent });
 
-    // Firma idéntica al carnet
-    consentP1.drawImage(signatureImageConsent, {
-      x: cCoords.firma.x,
-      y: cCoords.firma.y,
-      width: cCoords.firma.width,
-      height: cCoords.firma.height,
+    consentPage.drawImage(sigImageConsent, {
+      x: cCfg.firma.x,
+      y: cCfg.firma.y,
+      width: cCfg.firma.width,
+      height: cCfg.firma.height,
     });
 
     // =========================================================================
     // FUSIÓN DE DOCUMENTOS (22 + 1 = 23 páginas)
     // =========================================================================
     const mergedDoc = await PDFDocument.create();
-    const copiedPages1 = await mergedDoc.copyPages(actaPdfDoc, actaPdfDoc.getPageIndices());
-    copiedPages1.forEach((page) => mergedDoc.addPage(page));
+    const copied1 = await mergedDoc.copyPages(actaPdfDoc, actaPdfDoc.getPageIndices());
+    copied1.forEach((p) => mergedDoc.addPage(p));
 
-    const copiedPages2 = await mergedDoc.copyPages(consentimientoPdfDoc, consentimientoPdfDoc.getPageIndices());
-    copiedPages2.forEach((page) => mergedDoc.addPage(page));
+    const copied2 = await mergedDoc.copyPages(consentPdfDoc, consentPdfDoc.getPageIndices());
+    copied2.forEach((p) => mergedDoc.addPage(p));
 
     const finalPdfBytes = await mergedDoc.save();
 
@@ -379,29 +418,32 @@ export async function POST(req: NextRequest) {
       rut,
       cargo: 'OPERARIO(A) DE ASEO',
       area: 'CONCENTRADUCTO',
-      documentos_generados: ['Acta IRL DS 44 (22 págs)', 'Consentimiento Alcohol y Drogas'],
+      documento_codigo: 'VELTS-D-ACN212-HS-0012',
+      documentos_generados: ['Acta IRL DS 44 (VELTS-D-ACN212-HS-0012)', 'Consentimiento Alcohol y Drogas'],
+      tipo_firma: tipoFirma,
       ip_address: ip,
       user_agent: userAgent,
       archivo_peso_bytes: finalPdfBytes.byteLength,
       metadata: {
         total_paginas: 23,
-        respuestas_medicas_total: Object.keys(respuestasMedicas).length,
+        documento_base: 'VELTS-D-ACN212-HS-0012.00',
+        respuestas_medicas_respondidas: Object.keys(respuestasMedicas).length,
       },
     });
 
     // =========================================================================
-    // RETORNO DEL ARCHIVO PDF AL CLIENTE
+    // RETORNO DEL ARCHIVO AL CLIENTE
     // =========================================================================
     return new NextResponse(Buffer.from(finalPdfBytes), {
       status: 200,
       headers: {
         'Content-Type': 'application/pdf',
-        'Content-Disposition': \`attachment; filename="documentos_firmados_\${rut.replace(/[^0-9kK]/g, '')}.pdf"\`,
+        'Content-Disposition': \`attachment; filename="Documentos_Firmados_\${rut.replace(/[^0-9kK]/g, '')}.pdf"\`,
       },
     });
   } catch (error: any) {
     console.error('[API /api/generate Error]:', error);
-    return NextResponse.json({ error: error.message || 'Error interno al generar PDF' }, { status: 500 });
+    return NextResponse.json({ error: error.message || 'Error en el servidor al generar PDF' }, { status: 500 });
   }
 }
 `;
@@ -411,8 +453,10 @@ export const NEXT_PAGE_TSX = `// src/app/page.tsx
 
 import React, { useState, useRef } from 'react';
 import SignatureCanvas from 'react-signature-canvas';
+import { Upload, PenTool, CheckCircle2 } from 'lucide-react';
 
 export default function DocumentSigningPage() {
+  const [mode, setMode] = useState<'draw' | 'upload'>('draw');
   const [formData, setFormData] = useState({
     nombre: '',
     rut: '',
@@ -421,23 +465,23 @@ export default function DocumentSigningPage() {
   });
 
   const [respuestasMedicas, setRespuestasMedicas] = useState<Record<string, boolean>>({
-    ant_cirugias: false,
-    ant_licencias: false,
-    ant_hospitalizacion: false,
-    enf_hipertension: false,
-    enf_asma: false,
-    enf_pecho: false,
-    enf_diabetes: false,
-    enf_columna: false,
-    enf_articular: false,
     enf_epilepsia: false,
-    enf_vertigo: false,
-    enf_vision: false,
+    enf_lumbago: false,
+    enf_hipertension: false,
+    enf_diabetes: false,
+    enf_asma: false,
+    enf_claustrofobia: false,
+    enf_inmuno: false,
+    enf_otras: false,
+    ant_fractura: false,
+    ant_tratamientos: false,
     cons_alergia: false,
-    cons_somnolencia: false,
-    cons_embarazo: false,
+    cons_protesis: false,
+    cons_ortesis: false,
+    cons_discapacidad: false,
   });
 
+  const [uploadedFirmaBase64, setUploadedFirmaBase64] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -447,8 +491,33 @@ export default function DocumentSigningPage() {
     setRespuestasMedicas((prev) => ({ ...prev, [id]: value }));
   };
 
-  const handleClearSignature = () => {
-    sigCanvasRef.current?.clear();
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = () => {
+        // Remover fondo blanco para incrustación transparente
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = img.width;
+        tempCanvas.height = img.height;
+        const ctx = tempCanvas.getContext('2d');
+        if (!ctx) return;
+        ctx.drawImage(img, 0, 0);
+        const imgData = ctx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
+        const data = imgData.data;
+        for (let i = 0; i < data.length; i += 4) {
+          const brightness = (data[i] + data[i + 1] + data[i + 2]) / 3;
+          if (brightness > 200) data[i + 3] = 0;
+        }
+        ctx.putImageData(imgData, 0, 0);
+        setUploadedFirmaBase64(tempCanvas.toDataURL('image/png'));
+      };
+      img.src = event.target?.result as string;
+    };
+    reader.readAsDataURL(file);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -456,20 +525,20 @@ export default function DocumentSigningPage() {
     setErrorMessage(null);
     setSuccessMessage(null);
 
-    if (!formData.nombre.trim() || !formData.rut.trim()) {
-      setErrorMessage('Por favor ingrese su Nombre Completo y RUT.');
-      return;
+    let firmaBase64 = '';
+    if (mode === 'upload') {
+      if (!uploadedFirmaBase64) {
+        setErrorMessage('Por favor suba la imagen de su firma.');
+        return;
+      }
+      firmaBase64 = uploadedFirmaBase64;
+    } else {
+      if (sigCanvasRef.current?.isEmpty()) {
+        setErrorMessage('Debe firmar en el recuadro digital antes de continuar.');
+        return;
+      }
+      firmaBase64 = sigCanvasRef.current?.getTrimmedCanvas().toDataURL('image/png') || '';
     }
-
-    if (sigCanvasRef.current?.isEmpty()) {
-      setErrorMessage('Debe firmar en el recuadro digital antes de continuar.');
-      return;
-    }
-
-    // Capturar firma PNG en base64
-    const firmaPngBase64 = sigCanvasRef.current
-      ?.getTrimmedCanvas()
-      .toDataURL('image/png');
 
     setLoading(true);
 
@@ -480,7 +549,8 @@ export default function DocumentSigningPage() {
         body: JSON.stringify({
           ...formData,
           respuestasMedicas,
-          firmaPngBase64,
+          firmaPngBase64: firmaBase64,
+          tipoFirma: mode === 'upload' ? 'foto_subida' : 'digital_manuscrita',
         }),
       });
 
@@ -489,12 +559,11 @@ export default function DocumentSigningPage() {
         throw new Error(errorData.error || 'Error al procesar los documentos.');
       }
 
-      // Descargar el archivo PDF retornado
       const blob = await response.blob();
       const downloadUrl = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = downloadUrl;
-      link.download = \`Acta_DS44_Consentimiento_\${formData.rut}.pdf\`;
+      link.download = \`Documentos_Firmados_\${formData.rut.replace(/[^0-9kK]/g, '')}.pdf\`;
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -510,92 +579,71 @@ export default function DocumentSigningPage() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 p-6">
-      <div className="max-w-4xl mx-auto space-y-8">
-        <header className="border-b border-slate-800 pb-5">
+      <div className="max-w-4xl mx-auto space-y-6">
+        <header className="border-b border-slate-800 pb-4">
           <h1 className="text-2xl font-bold text-white">Llenado y Firma de Documentos Legales</h1>
           <p className="text-slate-400 text-sm mt-1">
-            Acta de Inducción D.S. N° 44 (22 Páginas) y Consentimiento de Alcohol y Drogas
+            Acta IRL D.S. N° 44 (VELTS-D-ACN212-HS-0012) y Consentimiento de Alcohol y Drogas
           </p>
         </header>
 
         <form onSubmit={handleSubmit} className="space-y-6">
-          {/* Datos Personales */}
+          {/* Datos del trabajador */}
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
-            <h2 className="text-lg font-semibold text-sky-400 mb-4">1. Datos del Trabajador</h2>
+            <h2 className="text-base font-bold text-sky-400 mb-4">1. Datos del Trabajador</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1">Nombre Completo</label>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">Nombre Completo</label>
                 <input
                   type="text"
                   required
-                  placeholder="Ej: Juan Carlos Pérez Soto"
+                  placeholder="Ej: JUAN CARLOS PÉREZ SOTO"
                   value={formData.nombre}
                   onChange={(e) => setFormData({ ...formData, nombre: e.target.value })}
-                  className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white"
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white"
                 />
               </div>
               <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1">RUT</label>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">RUT</label>
                 <input
                   type="text"
                   required
                   placeholder="Ej: 12.345.678-9"
                   value={formData.rut}
                   onChange={(e) => setFormData({ ...formData, rut: e.target.value })}
-                  className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1">Contacto de Emergencia</label>
-                <input
-                  type="text"
-                  placeholder="Nombre de familiar / contacto"
-                  value={formData.contactoEmergencia}
-                  onChange={(e) => setFormData({ ...formData, contactoEmergencia: e.target.value })}
-                  className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1">Teléfono Emergencia</label>
-                <input
-                  type="tel"
-                  placeholder="+56 9 1234 5678"
-                  value={formData.telefonoEmergencia}
-                  onChange={(e) => setFormData({ ...formData, telefonoEmergencia: e.target.value })}
-                  className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white"
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white"
                 />
               </div>
             </div>
           </div>
 
-          {/* Cuestionario Médico */}
+          {/* Cuestionario Médico Ficha Trabajador */}
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
-            <h2 className="text-lg font-semibold text-emerald-400 mb-2">2. Cuestionario de Salud DS 44 (Págs. 8 a 12)</h2>
-            <div className="space-y-3 mt-4">
-              {Object.entries({
-                ant_cirugias: '¿Ha tenido cirugías en los últimos 12 meses o fracturas?',
-                ant_licencias: '¿Ha tenido licencias médicas prolongadas en el último año?',
-                enf_hipertension: '¿Padece de Hipertensión Arterial?',
-                enf_asma: '¿Padece Asma Bronquial o dificultades respiratorias?',
-                enf_diabetes: '¿Ha sido diagnosticado de Diabetes Mellitus?',
-                enf_columna: '¿Presenta dolor crónico de columna o hernia discal?',
-                enf_epilepsia: '¿Ha sufrido episodios de epilepsia o convulsiones?',
-                cons_alergia: '¿Tiene alergias graves a medicamentos o picaduras?',
-              }).map(([id, label]) => (
-                <div key={id} className="flex items-center justify-between p-3 bg-slate-800/60 rounded-lg">
-                  <span className="text-sm text-slate-200">{label}</span>
+            <h2 className="text-base font-bold text-emerald-400 mb-1">2. Ficha Médica del Trabajador (Págs. 8 y 9)</h2>
+            <div className="space-y-2 mt-4">
+              {[
+                { id: 'enf_epilepsia', q: '01. Epilepsia o convulsiones' },
+                { id: 'enf_lumbago', q: '02. Lumbago o dolor de columna' },
+                { id: 'enf_hipertension', q: '03. Hipertensión Arterial' },
+                { id: 'enf_diabetes', q: '04. Diabetes Mellitus' },
+                { id: 'enf_asma', q: '05. Asma bronquial o dificultad respiratoria' },
+                { id: 'ant_fractura', q: '08. Fractura / Esguince / TEC' },
+                { id: 'cons_alergia', q: '11. Alergia grave a medicamentos o químicos' },
+              ].map(({ id, q }) => (
+                <div key={id} className="flex items-center justify-between p-3 bg-slate-950 rounded-lg border border-slate-800">
+                  <span className="text-sm text-slate-200">{q}</span>
                   <div className="flex gap-2">
                     <button
                       type="button"
                       onClick={() => handleToggle(id, true)}
-                      className={\`px-3 py-1 text-xs font-bold rounded \${respuestasMedicas[id] ? 'bg-red-600 text-white' : 'bg-slate-700 text-slate-300'}\`}
+                      className={\`px-3 py-1 text-xs font-bold rounded \${respuestasMedicas[id] ? 'bg-red-600 text-white' : 'bg-slate-800 text-slate-400'}\`}
                     >
                       SÍ
                     </button>
                     <button
                       type="button"
                       onClick={() => handleToggle(id, false)}
-                      className={\`px-3 py-1 text-xs font-bold rounded \${!respuestasMedicas[id] ? 'bg-emerald-600 text-white' : 'bg-slate-700 text-slate-300'}\`}
+                      className={\`px-3 py-1 text-xs font-bold rounded \${!respuestasMedicas[id] ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400'}\`}
                     >
                       NO
                     </button>
@@ -605,41 +653,63 @@ export default function DocumentSigningPage() {
             </div>
           </div>
 
-          {/* Firma Digital */}
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
-            <h2 className="text-lg font-semibold text-amber-400 mb-2">3. Firma Digital del Trabajador</h2>
-            <p className="text-xs text-slate-400 mb-3">
-              Firma idéntica a la cédula de identidad. Se estampará en la Página 22 del Acta y en el Consentimiento.
-            </p>
-            <div className="border border-slate-700 bg-white rounded-lg overflow-hidden">
-              <SignatureCanvas
-                ref={sigCanvasRef}
-                canvasProps={{ className: 'w-full h-44 cursor-crosshair' }}
-                backgroundColor="#ffffff"
-                penColor="#000000"
-              />
+          {/* Firma (Dibujo o Foto) */}
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-base font-bold text-amber-400">3. Firma del Trabajador</h2>
+              <div className="flex gap-1 bg-slate-950 p-1 rounded-lg border border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setMode('draw')}
+                  className={\`px-3 py-1 rounded text-xs font-bold \${mode === 'draw' ? 'bg-sky-600 text-white' : 'text-slate-400'}\`}
+                >
+                  Dibujar en Pantalla
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMode('upload')}
+                  className={\`px-3 py-1 rounded text-xs font-bold \${mode === 'upload' ? 'bg-sky-600 text-white' : 'text-slate-400'}\`}
+                >
+                  Subir Foto de Firma
+                </button>
+              </div>
             </div>
-            <div className="flex justify-end mt-2">
-              <button
-                type="button"
-                onClick={handleClearSignature}
-                className="text-xs text-slate-400 hover:text-white px-3 py-1 bg-slate-800 rounded border border-slate-700"
-              >
-                Limpiar Firma
-              </button>
-            </div>
+
+            {mode === 'draw' ? (
+              <div className="border border-slate-700 bg-white rounded-lg overflow-hidden">
+                <SignatureCanvas
+                  ref={sigCanvasRef}
+                  canvasProps={{ className: 'w-full h-44 cursor-crosshair' }}
+                  backgroundColor="#ffffff"
+                  penColor="#0f172a"
+                />
+              </div>
+            ) : (
+              <div className="border-2 border-dashed border-slate-700 rounded-lg p-6 text-center">
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handleFileUpload}
+                  className="block w-full text-xs text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-sky-600 file:text-white hover:file:bg-sky-500"
+                />
+                {uploadedFirmaBase64 && (
+                  <div className="mt-4 p-2 bg-white rounded max-w-xs mx-auto">
+                    <img src={uploadedFirmaBase64} alt="Firma" className="max-h-24 mx-auto" />
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
-          {/* Botón de Envío */}
-          {errorMessage && <div className="p-3 bg-red-900/50 border border-red-700 rounded-lg text-sm text-red-200">{errorMessage}</div>}
-          {successMessage && <div className="p-3 bg-emerald-900/50 border border-emerald-700 rounded-lg text-sm text-emerald-200">{successMessage}</div>}
+          {errorMessage && <div className="p-3 bg-red-950 border border-red-700 text-red-200 text-sm rounded">{errorMessage}</div>}
+          {successMessage && <div className="p-3 bg-emerald-950 border border-emerald-700 text-emerald-200 text-sm rounded">{successMessage}</div>}
 
           <button
             type="submit"
             disabled={loading}
-            className="w-full py-4 bg-sky-600 hover:bg-sky-500 disabled:bg-slate-800 font-bold text-white rounded-xl shadow-lg transition"
+            className="w-full py-4 bg-sky-600 hover:bg-sky-500 font-bold text-white rounded-xl shadow transition"
           >
-            {loading ? 'Generando PDF e Insertando Auditoría en Supabase...' : 'Generar, Firmar y Descargar Documentos'}
+            {loading ? 'Generando PDF e Insertando Auditoría...' : 'Generar, Firmar y Descargar Documentos'}
           </button>
         </form>
       </div>

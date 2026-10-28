@@ -1,13 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { WorkerFormData, CoordinateConfig, AuditoriaDocumento } from '../lib/types';
 import { STATIC_VALUES, MEDICAL_QUESTIONS, formatRUT, validateRUT } from '../lib/constants';
-import {
-  createMockDs44Template,
-  createMockConsentimientoTemplate,
-  fillActaDs44,
-  fillConsentimiento,
-  mergeDocuments,
-} from '../lib/pdf-processor';
+
 import { SignatureCanvas, SignatureCanvasHandle } from './SignatureCanvas';
 import {
   FileCheck2,
@@ -85,23 +79,7 @@ export function WorkerForm({ coordinates, onDocumentGenerated }: Props) {
       horaInicio: STATIC_VALUES.horaInicio,
       horaTermino: STATIC_VALUES.horaTermino,
       esPersonaNueva: true,
-      respuestasMedicas: {
-        ant_cirugias: false,
-        ant_licencias: false,
-        ant_hospitalizacion: false,
-        enf_hipertension: true,
-        enf_asma: false,
-        enf_pecho: false,
-        enf_diabetes: false,
-        enf_columna: false,
-        enf_articular: false,
-        enf_epilepsia: false,
-        enf_vertigo: false,
-        enf_vision: false,
-        cons_alergia: true,
-        cons_somnolencia: false,
-        cons_embarazo: false,
-      },
+
       firmaPngBase64: '',
     });
     setRutTouched(true);
@@ -140,9 +118,7 @@ export function WorkerForm({ coordinates, onDocumentGenerated }: Props) {
         firmaPngBase64: signature,
       };
 
-      // 1. Crear o cargar los PDFs base (DS 44 y Consentimiento)
-      const ds44Doc = await createMockDs44Template();
-      const consentimientoDoc = await createMockConsentimientoTemplate();
+
 
       // 2. Inyectar datos en el Acta DS 44 (Pág 1, Cuestionario médico Págs 8-12, y Pág 22 con firma)
       await fillActaDs44(ds44Doc, dataToProcess, coordinates);

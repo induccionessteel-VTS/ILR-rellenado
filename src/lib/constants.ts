@@ -7,172 +7,171 @@ export const STATIC_VALUES = {
   horaInicio: '10:00',
   horaTermino: '12:00',
   cargoPage22: 'Operario de Aseo',
+  codigoDocumento: 'VELTS-D-ACN212-HS-0012',
+  empresa: 'Steel Ingeniería S.A.',
 };
 
+/**
+ * Preguntas Médicas mapeadas exactamente a las tablas de la
+ * Ficha Médica del Trabajador en el documento real:
+ * - Página 8 (Índice 7): Enfermedades 01 a 04
+ * - Página 9 (Índice 8): Enfermedades 05 a 08, Antecedentes Generales y Otras Consideraciones
+ */
 export const MEDICAL_QUESTIONS: MedicalQuestion[] = [
-  // Página 8 (Índice 7): Antecedentes Generales
+  // PÁGINA 8 (ÍNDICE 7) - ENFERMEDADES (Tabla 1)
   {
-    id: 'ant_cirugias',
-    category: 'antecedentes',
+    id: 'enf_epilepsia',
+    category: 'enfermedades',
     pageIndex: 7,
-    question: '¿Ha tenido cirugías en los últimos 12 meses o fracturas no consolidadas?',
-    coordsYes: { x: 440, y: 640 },
-    coordsNo: { x: 490, y: 640 },
+    question: '01. Epilepsia o convulsiones',
+    coordsYes: { x: 378, y: 191 },
+    coordsNo: { x: 412, y: 191 },
   },
   {
-    id: 'ant_licencias',
-    category: 'antecedentes',
+    id: 'enf_lumbago',
+    category: 'enfermedades',
     pageIndex: 7,
-    question: '¿Ha tenido licencias médicas prolongadas (+ de 30 días) en el último año?',
-    coordsYes: { x: 440, y: 590 },
-    coordsNo: { x: 490, y: 590 },
+    question: '02. Lumbago o dolor crónico de columna',
+    coordsYes: { x: 378, y: 167 },
+    coordsNo: { x: 412, y: 167 },
   },
-  {
-    id: 'ant_hospitalizacion',
-    category: 'antecedentes',
-    pageIndex: 7,
-    question: '¿Ha requerido hospitalización por enfermedad grave en los últimos 2 años?',
-    coordsYes: { x: 440, y: 540 },
-    coordsNo: { x: 490, y: 540 },
-  },
-
-  // Página 9 (Índice 8): Cardiovasculares y Respiratorias
   {
     id: 'enf_hipertension',
     category: 'enfermedades',
-    pageIndex: 8,
-    question: '¿Padece de Hipertensión Arterial en tratamiento o descompensada?',
-    coordsYes: { x: 440, y: 640 },
-    coordsNo: { x: 490, y: 640 },
+    pageIndex: 7,
+    question: '03. Hipertensión Arterial',
+    coordsYes: { x: 378, y: 142 },
+    coordsNo: { x: 412, y: 142 },
   },
+  {
+    id: 'enf_diabetes',
+    category: 'enfermedades',
+    pageIndex: 7,
+    question: '04. Diabetes (Tipo 1 o 2)',
+    coordsYes: { x: 378, y: 118 },
+    coordsNo: { x: 412, y: 118 },
+  },
+
+  // PÁGINA 9 (ÍNDICE 8) - ENFERMEDADES (Continuación)
   {
     id: 'enf_asma',
     category: 'enfermedades',
     pageIndex: 8,
-    question: '¿Padece Asma Bronquial, EPOC o dificultades respiratorias al esfuerzo?',
-    coordsYes: { x: 440, y: 590 },
-    coordsNo: { x: 490, y: 590 },
+    question: '05. Asma bronquial o dificultad respiratoria',
+    coordsYes: { x: 378, y: 746 },
+    coordsNo: { x: 412, y: 746 },
   },
   {
-    id: 'enf_pecho',
+    id: 'enf_claustrofobia',
     category: 'enfermedades',
     pageIndex: 8,
-    question: '¿Ha sentido dolor opresivo en el pecho, palpitaciones anormales o desmayos?',
-    coordsYes: { x: 440, y: 540 },
-    coordsNo: { x: 490, y: 540 },
+    question: '06. Claustrofobia o fobia a espacios cerrados',
+    coordsYes: { x: 378, y: 724 },
+    coordsNo: { x: 412, y: 724 },
+  },
+  {
+    id: 'enf_inmuno',
+    category: 'enfermedades',
+    pageIndex: 8,
+    question: '07. Enfermedad inmunodepresora (Lupus, VIH, Cáncer)',
+    coordsYes: { x: 378, y: 701 },
+    coordsNo: { x: 412, y: 701 },
+  },
+  {
+    id: 'enf_otras',
+    category: 'enfermedades',
+    pageIndex: 8,
+    question: '08. Otras enfermedades de relevancia',
+    coordsYes: { x: 378, y: 678 },
+    coordsNo: { x: 412, y: 678 },
   },
 
-  // Página 10 (Índice 9): Metabólicas y Osteomusculares
+  // PÁGINA 9 (ÍNDICE 8) - ANTECEDENTES GENERALES
   {
-    id: 'enf_diabetes',
-    category: 'enfermedades',
-    pageIndex: 9,
-    question: '¿Ha sido diagnosticado de Diabetes Mellitus (Tipo 1 o Tipo 2)?',
-    coordsYes: { x: 440, y: 640 },
-    coordsNo: { x: 490, y: 640 },
+    id: 'ant_fractura',
+    category: 'antecedentes',
+    pageIndex: 8,
+    question: '08. Fractura / Esguince / TEC (Traumatismo Cráneo Encefálico)',
+    coordsYes: { x: 378, y: 616 },
+    coordsNo: { x: 412, y: 616 },
   },
   {
-    id: 'enf_columna',
-    category: 'enfermedades',
-    pageIndex: 9,
-    question: '¿Presenta dolor crónico de columna, lumbago recurrente o hernia discal?',
-    coordsYes: { x: 440, y: 590 },
-    coordsNo: { x: 490, y: 590 },
-  },
-  {
-    id: 'enf_articular',
-    category: 'enfermedades',
-    pageIndex: 9,
-    question: '¿Presenta limitación en articulaciones, hombros, rodillas o muñecas?',
-    coordsYes: { x: 440, y: 540 },
-    coordsNo: { x: 490, y: 540 },
+    id: 'ant_tratamientos',
+    category: 'antecedentes',
+    pageIndex: 8,
+    question: '09. Tratamientos Médicos vigentes o prolongados',
+    coordsYes: { x: 378, y: 591 },
+    coordsNo: { x: 412, y: 591 },
   },
 
-  // Página 11 (Índice 10): Neurológicas y Auditivas/Visuales
-  {
-    id: 'enf_epilepsia',
-    category: 'enfermedades',
-    pageIndex: 10,
-    question: '¿Ha sufrido episodios de epilepsia, convulsiones o pérdidas de conciencia?',
-    coordsYes: { x: 440, y: 640 },
-    coordsNo: { x: 490, y: 640 },
-  },
-  {
-    id: 'enf_vertigo',
-    category: 'enfermedades',
-    pageIndex: 10,
-    question: '¿Sufre de vértigo, laberintitis o fobia a la altura física/geográfica?',
-    coordsYes: { x: 440, y: 590 },
-    coordsNo: { x: 490, y: 590 },
-  },
-  {
-    id: 'enf_vision',
-    category: 'enfermedades',
-    pageIndex: 10,
-    question: '¿Presenta problemas auditivos o visuales que le impidan percibir alarmas?',
-    coordsYes: { x: 440, y: 540 },
-    coordsNo: { x: 490, y: 540 },
-  },
-
-  // Página 12 (Índice 11): Otras Consideraciones y Alergias
+  // PÁGINA 9 (ÍNDICE 8) - OTRAS CONSIDERACIONES
   {
     id: 'cons_alergia',
     category: 'consideraciones',
-    pageIndex: 11,
-    question: '¿Tiene alergias graves a medicamentos, polvo químico o picaduras?',
-    coordsYes: { x: 440, y: 640 },
-    coordsNo: { x: 490, y: 640 },
+    pageIndex: 8,
+    question: '11. Alergia grave a medicamentos, polvo o químicos',
+    coordsYes: { x: 378, y: 516 },
+    coordsNo: { x: 412, y: 516 },
   },
   {
-    id: 'cons_somnolencia',
+    id: 'cons_protesis',
     category: 'consideraciones',
-    pageIndex: 11,
-    question: '¿Consume habitualmente medicamentos inductores del sueño o sedantes?',
-    coordsYes: { x: 440, y: 590 },
-    coordsNo: { x: 490, y: 590 },
+    pageIndex: 8,
+    question: '12. Prótesis médica',
+    coordsYes: { x: 378, y: 491 },
+    coordsNo: { x: 412, y: 491 },
   },
   {
-    id: 'cons_embarazo',
+    id: 'cons_ortesis',
     category: 'consideraciones',
-    pageIndex: 11,
-    question: 'En caso de mujeres: ¿Se encuentra actualmente en estado de embarazo?',
-    coordsYes: { x: 440, y: 540 },
-    coordsNo: { x: 490, y: 540 },
+    pageIndex: 8,
+    question: '13. Órtesis (apoyo externo al cuerpo)',
+    coordsYes: { x: 378, y: 466 },
+    coordsNo: { x: 412, y: 466 },
+  },
+  {
+    id: 'cons_discapacidad',
+    category: 'consideraciones',
+    pageIndex: 8,
+    question: '14. Discapacidad acreditada',
+    coordsYes: { x: 378, y: 441 },
+    coordsNo: { x: 412, y: 441 },
   },
 ];
 
+/**
+ * Coordenadas exactamente calibradas para el documento real:
+ * VELTS-D-ACN212-HS-0012 (612 x 792 pt - US Letter)
+ */
 export const DEFAULT_COORDINATES: CoordinateConfig = {
   actaDs44: {
     page1: {
-      cargo: { x: 130, y: 672 },
-      fecha: { x: 460, y: 672 },
-      area: { x: 130, y: 642 },
-      horaInicio: { x: 380, y: 642 },
-      horaTermino: { x: 485, y: 642 },
-      personaNuevaX: { x: 508, y: 618, size: 24 }, // "X" gigante
-      nombre: { x: 130, y: 588 },
-      rut: { x: 420, y: 588 },
-      contactoEmergencia: { x: 195, y: 558 },
-      telefonoEmergencia: { x: 420, y: 558 },
+      cargo: { x: 52, y: 564 }, // Preimpreso en el documento
+      fecha: { x: 435, y: 564 },
+      area: { x: 80, y: 550 },
+      horaInicio: { x: 460, y: 550 },
+      horaTermino: { x: 535, y: 550 },
+      personaNuevaX: { x: 105, y: 486, size: 20 }, // "X" gigante en casilla 'Persona Nueva'
+      nombre: { x: 155, y: 578 },
+      rut: { x: 450, y: 578 },
+      contactoEmergencia: { x: 185, y: 536 },
+      telefonoEmergencia: { x: 185, y: 522 },
     },
     page22: {
-      nombre: { x: 80, y: 195 },
-      rut: { x: 80, y: 165 },
-      cargo: { x: 80, y: 135 },
-      firma: { x: 360, y: 130, width: 170, height: 75 }, // Lado derecho firma trabajador
+      nombre: { x: 125, y: 541 },
+      rut: { x: 80, y: 527 },
+      cargo: { x: 55, y: 512 },
+      firma: { x: 295, y: 130, width: 175, height: 75 }, // Lado derecho (respetando casilla Huella)
     },
   },
   consentimiento: {
     nombre: { x: 140, y: 620 },
     rut: { x: 140, y: 585 },
     fecha: { x: 380, y: 585 },
-    firma: { x: 210, y: 240, width: 180, height: 80 }, // Coordenadas sobre la línea de firma
+    firma: { x: 210, y: 240, width: 180, height: 80 },
   },
 };
 
-/**
- * Validador y formateador de RUT chileno
- */
 export function formatRUT(rutRaw: string): string {
   const clean = rutRaw.replace(/[^0-9kK]/g, '').toUpperCase();
   if (!clean) return '';
